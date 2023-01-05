@@ -47,8 +47,8 @@ def weight_matrix(adata, l, cutoff=None, n_neighbors=None, n_nearest_neighbors=6
     pdist = spatial.distance.pdist(adata.obsm['spatial'], 'sqeuclidean')
     pdist = spatial.distance.squareform(pdist)
     rbf_d = np.exp(-pdist / (2 * l ** 2))  # RBF Distance
-    if rbf_d.shape[0] > 1000:
-        rbf_d = rbf_d.astype(np.float16)
+    # if rbf_d.shape[0] > 1000:
+    #     rbf_d = rbf_d.astype(np.float16)
 
     nnbrs = NearestNeighbors(n_nearest_neighbors, algorithm='ball_tree').fit(rbf_d)
     knn0 = nnbrs.kneighbors_graph(rbf_d).toarray()
@@ -145,38 +145,73 @@ def spatialdm_global(adata, n_perm=1000, specified_ind=None, method='z-score', n
     """
     if type(specified_ind) == type(None):
         specified_ind = adata.uns['geneInter'].index.values  # default to all pairs
-    total_len = len(specified_ind)
-    adata.uns['ligand'] = adata.uns['ligand'].loc[specified_ind]#.values
-    adata.uns['receptor'] = adata.uns['receptor'].loc[specified_ind]#.values
-    adata.uns['global_I'] = np.zeros(total_len)
-    adata.uns['global_stat'] = {}
-    if method in ['z-score', 'both']:
-        adata.uns['global_stat']['z']={}
-        adata.uns['global_stat']['z']['st'] = globle_st_compute(adata)
-        adata.uns['global_stat']['z']['z'] = np.zeros(total_len)
-        adata.uns['global_stat']['z']['z_p'] = np.zeros(total_len)
-    if method in ['both', 'permutation']:
-        adata.uns['global_stat']['perm']={}
-        adata.uns['global_stat']['perm']['global_perm'] = np.zeros((total_len, n_perm)).astype(np.float16)
 
-    if not (method in ['both', 'z-score', 'permutation']):
+    # TODO: only slice variance
+    # TODO: Add back index number
+    adata.uns["geneInter"]["indexNumber"] = range(adata.uns["num_pairs"])
+    adata.uns["ligand"]["indexNumber"] = range(adata.uns["num_pairs"])
+    adata.uns["receptor"]["indexNumber"] = range(adata.uns["num_pairs"])
+
+    specified_ind_indexNumber = (
+        adata.uns["geneInter"].loc[specified_ind]["indexNumber"].values
+    )
+    adata.uns["geneInter"].drop("indexNumber", inplace=True, axis=1)
+    adata.uns["ligand"].drop("indexNumber", inplace=True, axis=1)
+    adata.uns["receptor"].drop("indexNumber", inplace=True, axis=1)
+
+
+    total_len = len(specified_ind)
+    adata.uns["ligand"] = adata.uns["ligand"].loc[specified_ind]  # .values
+    adata.uns["receptor"] = adata.uns["receptor"].loc[specified_ind]  # .values
+    adata.uns["global_I"] = np.zeros(total_len)
+
+    adata.uns["global_stat"] = {}
+    if method in ["z-score", "both"]:
+        adata.uns["global_stat"]["z"] = {}
+        # TODO: only slice variance
+        adata.uns["global_stat"]["z"]["st"] = globle_st_compute(adata)[
+            specified_ind_indexNumber
+        ]
+        adata.uns["global_stat"]["z"]["z"] = np.zeros(total_len)
+        adata.uns["global_stat"]["z"]["z_p"] = np.zeros(total_len)
+    if method in ["both", "permutation"]:
+        adata.uns["global_stat"]["perm"] = {}
+        adata.uns["global_stat"]["perm"]["global_perm"] = np.zeros(
+            (total_len, n_perm)
+        ).astype(np.float16)
+
+    if not (method in ["both", "z-score", "permutation"]):
         raise ValueError("Only one of ['z-score', 'both', 'permutation'] is supported")
 
-    with threadpool_limits(limits=nproc, user_api='blas'):
+    with threadpool_limits(limits=nproc, user_api="blas"):
         pair_selection_matrix(adata, n_perm, specified_ind, method)
 
-    adata.uns['global_res'] = pd.concat((adata.uns['ligand'], adata.uns['receptor']),axis=1)
+    adata.uns["global_res"] = pd.concat(
+        (adata.uns["ligand"], adata.uns["receptor"]), axis=1
+    )
     # adata.uns['global_res'].columns = ['Ligand1', 'Ligand2', 'Ligand3', 'Receptor1', 'Receptor2', 'Receptor3', 'Receptor4']
-    if method in ['z-score', 'both']:
-        adata.uns['global_stat']['z']['z_p'] = np.where(np.isnan(adata.uns['global_stat']['z']['z_p']),
-                                                      1, adata.uns['global_stat']['z']['z_p'])
-        adata.uns['global_res']['z_pval'] = adata.uns['global_stat']['z']['z_p']
-        adata.uns['global_res']['z'] = adata.uns['global_stat']['z']['z']
+    if method in ["z-score", "both"]:
+        adata.uns["global_stat"]["z"]["z_p"] = np.where(
+            np.isnan(adata.uns["global_stat"]["z"]["z_p"]),
+            1,
+            adata.uns["global_stat"]["z"]["z_p"],
+        )
+        adata.uns["global_res"]["z_pval"] = adata.uns["global_stat"]["z"]["z_p"]
+        adata.uns["global_res"]["z"] = adata.uns["global_stat"]["z"]["z"]
 
-    if method in ['both', 'permutation']:
-        adata.uns['global_stat']['perm']['global_p'] = 1 - (adata.uns['global_I'] \
-                             > adata.uns['global_stat']['perm']['global_perm'].T).sum(axis=0) / n_perm
-        adata.uns['global_res']['perm_pval'] = adata.uns['global_stat']['perm']['global_p']
+    if method in ["both", "permutation"]:
+        adata.uns["global_stat"]["perm"]["global_p"] = (
+            1
+            - (
+                adata.uns["global_I"]
+                > adata.uns["global_stat"]["perm"]["global_perm"].T
+            ).sum(axis=0)
+            / n_perm
+        )
+        adata.uns["global_res"]["perm_pval"] = adata.uns["global_stat"]["perm"][
+            "global_p"
+        ]
+
     return
 
 def sig_pairs(adata, method='z-score', fdr=True, threshold=0.1):
