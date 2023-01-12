@@ -50,7 +50,10 @@ def weight_matrix(adata, l, cutoff=None, n_neighbors=None, n_nearest_neighbors=6
     # if rbf_d.shape[0] > 1000:
     #     rbf_d = rbf_d.astype(np.float16)
 
-    nnbrs = NearestNeighbors(n_nearest_neighbors, algorithm='ball_tree').fit(rbf_d)
+    # fix init error
+    #   TypeError: __init__() takes 1 positional argument but 2 positional 
+    #   arguments (and 1 keyword-only argument) were given
+    nnbrs = NearestNeighbors(n_neighbors=n_nearest_neighbors, algorithm='ball_tree').fit(rbf_d)
     knn0 = nnbrs.kneighbors_graph(rbf_d).toarray()
     rbf_d0 = rbf_d * knn0
 
